@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,7 +11,8 @@ import (
 )
 
 type GitService struct {
-	warp *WarpService
+	warp  *WarpService
+	user  string
 	token string
 
 	// In-memory branch cache: project name → branch list
@@ -20,9 +22,10 @@ type GitService struct {
 	cache   map[string][]string
 }
 
-func NewGitService(warp *WarpService, token string) *GitService {
+func NewGitService(warp *WarpService, user, token string) *GitService {
 	return &GitService{
 		warp:  warp,
+		user:  user,
 		token: token,
 		cache: make(map[string][]string),
 	}
@@ -155,7 +158,14 @@ func (g *GitService) readLocalBranches(repoPath string) ([]string, error) {
 func (g *GitService) git(repoPath string, args ...string) (string, error) {
 	// Prepend the token header if available
 	if g.token != "" {
-		header := fmt.Sprintf("http.extraHeader=Authorization: Bearer %s", g.token)
+		var auth string
+		if g.user != "" {
+			creds := base64.StdEncoding.EncodeToString([]byte(g.user + ":" + g.token))
+			auth = "Basic " + creds
+		} else {
+			auth = "Bearer " + g.token
+		}
+		header := fmt.Sprintf("http.extraHeader=Authorization: %s", auth)
 		args = append([]string{"-c", header}, args...)
 	}
 

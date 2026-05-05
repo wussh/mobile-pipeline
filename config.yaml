@@ -6,6 +6,7 @@ link_expiry: 24h
 cleanup_interval: 1h
 build_output_dir: ./builds
 upload_dir: ./uploads
+git_user: "70003152"
 git_token: "BBDC-NzM4MTYzODQ1Nzg4OujOg2lcv2qai4zHBwpZRJwhAqHt"
 
 projects:

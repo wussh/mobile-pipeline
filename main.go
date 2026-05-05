@@ -18,13 +18,10 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	// Ensure directories exist
-	// (FileManager.New handles this)
-
 	// Init services
 	fileMgr := services.NewFileManager(cfg.BuildOutputDir, cfg.UploadDir, cfg.LinkExpiry, cfg.SecretKey)
 	warpSvc := services.NewWarpService()
-	gitSvc := services.NewGitService(warpSvc, cfg.GitToken)
+	gitSvc := services.NewGitService(warpSvc, cfg.GitUser, cfg.GitToken)
 	buildSvc := services.NewBuildService(cfg, gitSvc, fileMgr)
 
 	// Pre-populate branch cache from local .git (no network needed)
