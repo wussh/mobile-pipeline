@@ -124,12 +124,9 @@ func (g *GitService) CloneIfNotExists(projectName, repoURL, localPath string, lo
 
 	return g.warp.WithDisconnected(func() error {
 		logFn(fmt.Sprintf("⚠️  WARP disconnected — cloning %s...", projectName))
-		cmd := exec.Command("git", "clone", repoURL, localPath)
-		var out bytes.Buffer
-		cmd.Stdout = &out
-		cmd.Stderr = &out
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("git clone: %w\n%s", err, out.String())
+		out, err := g.git("", "clone", repoURL, localPath)
+		if err != nil {
+			return fmt.Errorf("git clone: %w\n%s", err, out)
 		}
 		logFn("✅ Clone complete — WARP reconnecting...")
 		return nil
