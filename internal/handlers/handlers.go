@@ -76,6 +76,12 @@ func (h *Handler) FetchBranches(c *gin.Context) {
 		return
 	}
 	var logs []string
+	if err := h.gitSvc.CloneIfNotExists(proj.Name, proj.RepoURL, proj.LocalPath, func(line string) {
+		logs = append(logs, line)
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "log": logs})
+		return
+	}
 	branches, err := h.gitSvc.FetchLatest(body.Project, proj.LocalPath, func(line string) {
 		logs = append(logs, line)
 	})
@@ -105,6 +111,12 @@ func (h *Handler) PullLatest(c *gin.Context) {
 		return
 	}
 	var logs []string
+	if err := h.gitSvc.CloneIfNotExists(proj.Name, proj.RepoURL, proj.LocalPath, func(line string) {
+		logs = append(logs, line)
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "log": logs})
+		return
+	}
 	if err := h.gitSvc.PullBranch(proj.LocalPath, body.Branch, func(line string) {
 		logs = append(logs, line)
 	}); err != nil {
