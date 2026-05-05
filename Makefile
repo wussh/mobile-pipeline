@@ -1,10 +1,11 @@
 .PHONY: run build clean
 
 run:
-	go run main.go
+	go run main.go &
 
 build:
 	go build -o ios-build-server main.go
+	./ios-build-server &
 
 clean:
 	rm -f ios-build-server
