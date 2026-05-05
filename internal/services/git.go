@@ -11,6 +11,7 @@ import (
 
 type GitService struct {
 	warp *WarpService
+	token string
 
 	// In-memory branch cache: project name → branch list
 	// Populated from local .git on startup, updated after every fetch.
@@ -19,9 +20,10 @@ type GitService struct {
 	cache   map[string][]string
 }
 
-func NewGitService(warp *WarpService) *GitService {
+func NewGitService(warp *WarpService, token string) *GitService {
 	return &GitService{
 		warp:  warp,
+		token: token,
 		cache: make(map[string][]string),
 	}
 }
@@ -151,8 +153,16 @@ func (g *GitService) readLocalBranches(repoPath string) ([]string, error) {
 
 // git runs a git subcommand in repoPath and returns combined output.
 func (g *GitService) git(repoPath string, args ...string) (string, error) {
+	// Prepend the token header if available
+	if g.token != "" {
+		header := fmt.Sprintf("http.extraHeader=Authorization: Bearer %s", g.token)
+		args = append([]string{"-c", header}, args...)
+	}
+
 	cmd := exec.Command("git", args...)
-	cmd.Dir = repoPath
+	if repoPath != "" {
+		cmd.Dir = repoPath
+	}
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out

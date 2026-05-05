@@ -24,7 +24,7 @@ func main() {
 	// Init services
 	fileMgr := services.NewFileManager(cfg.BuildOutputDir, cfg.UploadDir, cfg.LinkExpiry, cfg.SecretKey)
 	warpSvc := services.NewWarpService()
-	gitSvc := services.NewGitService(warpSvc)
+	gitSvc := services.NewGitService(warpSvc, cfg.GitToken)
 	buildSvc := services.NewBuildService(cfg, gitSvc, fileMgr)
 
 	// Pre-populate branch cache from local .git (no network needed)

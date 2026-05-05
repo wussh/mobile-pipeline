@@ -22,6 +22,7 @@ type Config struct {
 	CleanupInterval time.Duration `yaml:"cleanup_interval"`
 	BuildOutputDir  string        `yaml:"build_output_dir"`
 	UploadDir       string        `yaml:"upload_dir"`
+	GitToken        string        `yaml:"git_token"`
 	Projects        []Project     `yaml:"projects"`
 }
 
