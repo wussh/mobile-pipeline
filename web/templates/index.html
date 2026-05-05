@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iOS Build Pipeline</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: monospace; background: #1a1a1a; color: #e0e0e0; font-size: 14px; }
+        a { color: #4a9eff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        header { background: #111; border-bottom: 1px solid #333; padding: 12px 20px; display: flex; align-items: center; gap: 20px; }
+        header h1 { font-size: 16px; color: #fff; }
+        nav a { color: #aaa; font-size: 13px; }
+        nav a:hover { color: #fff; }
+        .warp-badge { margin-left: auto; font-size: 12px; padding: 3px 8px; border-radius: 4px; background: #333; }
+
+        main { padding: 20px; max-width: 960px; margin: 0 auto; }
+        section { margin-bottom: 24px; }
+        h2 { font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 6px; }
+
+        .form-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 8px; }
+        select, input[type=text] { background: #252525; border: 1px solid #444; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; font-family: monospace; font-size: 13px; }
+        select:focus, input:focus { outline: 1px solid #4a9eff; }
+        label { font-size: 12px; color: #888; display: block; margin-bottom: 4px; }
+
+        button { background: #2a2a2a; border: 1px solid #555; color: #e0e0e0; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 13px; }
+        button:hover { background: #333; border-color: #4a9eff; }
+        button.primary { background: #4a9eff; border-color: #4a9eff; color: #fff; }
+        button.primary:hover { background: #3a8eef; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        #log-box { background: #111; border: 1px solid #333; border-radius: 4px; padding: 10px; height: 280px; overflow-y: auto; font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
+        #log-box .err { color: #ff6b6b; }
+        #log-box .ok  { color: #6bff8a; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; color: #666; font-weight: normal; padding: 6px 8px; border-bottom: 1px solid #333; }
+        td { padding: 6px 8px; border-bottom: 1px solid #222; vertical-align: middle; }
+        tr:hover td { background: #222; }
+
+        .badge { font-size: 11px; padding: 2px 6px; border-radius: 3px; }
+        .badge-queued   { background:#333; color:#aaa; }
+        .badge-building { background:#4a3900; color:#ffc; }
+        .badge-success  { background:#0d3300; color:#6bff8a; }
+        .badge-failed   { background:#330000; color:#ff6b6b; }
+
+        .msg { padding: 8px 12px; border-radius: 4px; font-size: 13px; margin-bottom: 8px; }
+        .msg-err { background: #330000; color: #ff8080; border: 1px solid #600; }
+        .msg-ok  { background: #003300; color: #80ff80; border: 1px solid #060; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>🔨 iOS Build Pipeline</h1>
+    <nav>
+        <a href="/">Build</a> &nbsp;|&nbsp;
+        <a href="/files">Files</a>
+    </nav>
+    <span class="warp-badge" id="warp-status">WARP: checking...</span>
+</header>
+
+<main>
+
+<section>
+    <h2>Trigger Build</h2>
+    <div id="build-msg"></div>
+    <div class="form-row">
+        <div>
+            <label>Project</label>
+            <select id="sel-project">
+                {{range .Projects}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+            </select>
+        </div>
+        <div>
+            <label>Branch</label>
+            <select id="sel-branch"><option value="">— load branches —</option></select>
+        </div>
+        <div>
+            <label>Type</label>
+            <select id="sel-type">
+                <option value="ipa">IPA (iOS)</option>
+                <option value="apk">APK (Android)</option>
+            </select>
+        </div>
+        <div>
+            <label>&nbsp;</label>
+            <button id="btn-fetch" onclick="fetchBranches()">↻ Fetch</button>
+        </div>
+        <div>
+            <label>&nbsp;</label>
+            <button class="primary" id="btn-build" onclick="triggerBuild()">▶ Build</button>
+        </div>
+    </div>
+    <div id="log-box">Ready.</div>
+</section>
+
+<section>
+    <h2>Recent Builds</h2>
+    <table>
+        <thead><tr><th>ID</th><th>Project</th><th>Branch</th><th>Type</th><th>Status</th><th>Started</th></tr></thead>
+        <tbody id="builds-tbody">
+        {{range .Builds}}
+        <tr>
+            <td><a href="#" onclick="loadBuildLog('{{.ID}}')">{{slice .ID 0 8}}</a></td>
+            <td>{{.Project}}</td>
+            <td>{{.Branch}}</td>
+            <td>{{.BuildType}}</td>
+            <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+            <td>{{.StartedAt.Format "2006-01-02 15:04"}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="6" style="color:#555;text-align:center">No builds yet</td></tr>
+        {{end}}
+        </tbody>
+    </table>
+</section>
+
+</main>
+
+<script>
+let currentBuildID = null;
+let ws = null;
+
+// Poll WARP status
+function refreshWarp() {
+    fetch('/api/warp/status').then(r=>r.json()).then(d=>{
+        const el = document.getElementById('warp-status');
+        el.textContent = 'WARP: ' + d.status;
+        el.style.color = d.status === 'Connected' ? '#6bff8a' : '#ff6b6b';
+    }).catch(()=>{});
+}
+setInterval(refreshWarp, 5000);
+refreshWarp();
+
+// Load branches for project
+document.getElementById('sel-project').addEventListener('change', loadBranches);
+
+function loadBranches() {
+    const proj = document.getElementById('sel-project').value;
+    fetch('/api/branches?project=' + proj).then(r=>r.json()).then(d=>{
+        const sel = document.getElementById('sel-branch');
+        sel.innerHTML = '';
+        (d.branches||[]).forEach(b => {
+            const o = document.createElement('option');
+            o.value = b; o.textContent = b;
+            sel.appendChild(o);
+        });
+    });
+}
+loadBranches();
+
+function fetchBranches() {
+    const proj = document.getElementById('sel-project').value;
+    const btn = document.getElementById('btn-fetch');
+    btn.disabled = true;
+    btn.textContent = '...';
+    appendLog('⚠️  Fetching branches — WARP will disconnect briefly...', '');
+
+    fetch('/api/fetch', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({project: proj})
+    }).then(r=>r.json()).then(d=>{
+        (d.log||[]).forEach(l=>appendLog(l,''));
+        if(d.error) { appendLog('ERROR: ' + d.error, 'err'); }
+        else {
+            appendLog('✅ Fetch complete', 'ok');
+            loadBranches();
+        }
+    }).catch(e=>appendLog('ERROR: '+e,'err'))
+    .finally(()=>{ btn.disabled=false; btn.textContent='↻ Fetch'; });
+}
+
+function triggerBuild() {
+    const project   = document.getElementById('sel-project').value;
+    const branch    = document.getElementById('sel-branch').value;
+    const build_type = document.getElementById('sel-type').value;
+
+    if(!branch){ showMsg('Select a branch first','err'); return; }
+
+    document.getElementById('log-box').textContent = '';
+    document.getElementById('btn-build').disabled = true;
+
+    fetch('/api/build', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({project, branch, build_type})
+    }).then(r=>r.json()).then(d=>{
+        if(d.error){ showMsg(d.error,'err'); document.getElementById('btn-build').disabled=false; return; }
+        currentBuildID = d.id;
+        showMsg('Build queued: ' + d.id.slice(0,8), 'ok');
+        openWS(d.id);
+        refreshBuilds();
+    });
+}
+
+function openWS(id) {
+    if(ws) ws.close();
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws/build/${id}`);
+    ws.onmessage = e => appendLog(e.data, e.data.startsWith('ERROR') ? 'err' : '');
+    ws.onclose = () => {
+        appendLog('--- stream closed ---','');
+        document.getElementById('btn-build').disabled = false;
+        refreshBuilds();
+    };
+}
+
+function loadBuildLog(id) {
+    document.getElementById('log-box').textContent = '';
+    openWS(id);
+}
+
+function appendLog(line, cls) {
+    const box = document.getElementById('log-box');
+    const span = document.createElement('span');
+    span.className = cls;
+    span.textContent = line + '\n';
+    box.appendChild(span);
+    box.scrollTop = box.scrollHeight;
+}
+
+function showMsg(msg, type) {
+    const el = document.getElementById('build-msg');
+    el.innerHTML = `<div class="msg msg-${type}">${msg}</div>`;
+    setTimeout(()=>el.innerHTML='', 5000);
+}
+
+function refreshBuilds() {
+    fetch('/api/builds').then(r=>r.json()).then(builds=>{
+        const tbody = document.getElementById('builds-tbody');
+        if(!builds||!builds.length){
+            tbody.innerHTML='<tr><td colspan="6" style="color:#555;text-align:center">No builds yet</td></tr>';
+            return;
+        }
+        builds.sort((a,b)=>b.started_at.localeCompare(a.started_at));
+        tbody.innerHTML = builds.map(b=>`
+            <tr>
+              <td><a href="#" onclick="loadBuildLog('${b.id}')">${b.id.slice(0,8)}</a></td>
+              <td>${b.project}</td>
+              <td>${b.branch}</td>
+              <td>${b.build_type}</td>
+              <td><span class="badge badge-${b.status}">${b.status}</span></td>
+              <td>${b.started_at.replace('T',' ').slice(0,16)}</td>
+            </tr>`).join('');
+    });
+}
+setInterval(refreshBuilds, 5000);
+</script>
+</body>
+</html>

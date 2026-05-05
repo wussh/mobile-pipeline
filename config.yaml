@@ -1,0 +1,16 @@
+port: 8080
+auth_user: admin
+auth_pass: changeme
+secret_key: "replace-with-random-secret-32chars"
+link_expiry: 24h
+cleanup_interval: 1h
+build_output_dir: ./builds
+upload_dir: ./uploads
+
+projects:
+  - name: mbtw
+    repo_url: https://bitbucket.bri.co.id/scm/mbtw/fe-mobile-banking-taipei.git
+    local_path: ./projects/mbtw
+  - name: mbtl
+    repo_url: https://bitbucket.bri.co.id/scm/mbtl/mbtl-app-brimotl.git
+    local_path: ./projects/mbtl

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Files — iOS Build Pipeline</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: monospace; background: #1a1a1a; color: #e0e0e0; font-size: 14px; }
+        a { color: #4a9eff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        header { background: #111; border-bottom: 1px solid #333; padding: 12px 20px; display: flex; align-items: center; gap: 20px; }
+        header h1 { font-size: 16px; color: #fff; }
+        nav a { color: #aaa; font-size: 13px; }
+        nav a:hover { color: #fff; }
+
+        main { padding: 20px; max-width: 960px; margin: 0 auto; }
+        section { margin-bottom: 24px; }
+        h2 { font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 6px; }
+
+        #drop-zone {
+            border: 2px dashed #444; border-radius: 6px; padding: 30px;
+            text-align: center; color: #666; cursor: pointer; transition: border-color .2s;
+        }
+        #drop-zone.drag-over { border-color: #4a9eff; color: #4a9eff; }
+        #drop-zone input { display: none; }
+
+        button { background: #2a2a2a; border: 1px solid #555; color: #e0e0e0; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 12px; }
+        button:hover { background: #333; border-color: #4a9eff; }
+        button.danger { border-color: #a00; }
+        button.danger:hover { background: #300; border-color: #f00; color: #f88; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; color: #666; font-weight: normal; padding: 6px 8px; border-bottom: 1px solid #333; }
+        td { padding: 6px 8px; border-bottom: 1px solid #222; vertical-align: middle; word-break: break-all; }
+        tr:hover td { background: #222; }
+
+        .msg { padding: 8px 12px; border-radius: 4px; font-size: 13px; margin-bottom: 8px; }
+        .msg-err { background: #330000; color: #ff8080; border: 1px solid #600; }
+        .msg-ok  { background: #003300; color: #80ff80; border: 1px solid #060; }
+
+        .size { color: #888; }
+        .expiry { font-size: 12px; color: #666; }
+        .expiry.soon { color: #ffc107; }
+        .expiry.expired { color: #ff6b6b; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>🔨 iOS Build Pipeline</h1>
+    <nav>
+        <a href="/">Build</a> &nbsp;|&nbsp;
+        <a href="/files">Files</a>
+    </nav>
+</header>
+
+<main>
+
+<section>
+    <h2>Upload File</h2>
+    <div id="upload-msg"></div>
+    <div id="drop-zone" onclick="document.getElementById('file-input').click()"
+         ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+        <input type="file" id="file-input" onchange="uploadFile(this.files[0])">
+        Drop file here or click to select
+    </div>
+</section>
+
+<section>
+    <h2>Available Files</h2>
+    <table>
+        <thead><tr><th>Filename</th><th>Size</th><th>Expires</th><th>Actions</th></tr></thead>
+        <tbody id="files-tbody">
+        {{range .Files}}
+        <tr id="row-{{.ID}}">
+            <td>{{.Filename}}</td>
+            <td class="size">{{formatBytes .Size}}</td>
+            <td class="expiry" data-expires="{{.ExpiresAt.Unix}}">{{.ExpiresAt.Format "2006-01-02 15:04"}}</td>
+            <td>
+                <button onclick="copyLink('{{.ID}}','{{.Token}}',{{.ExpiresAt.Unix}}')">Copy Link</button>
+                &nbsp;
+                <button class="danger" onclick="deleteFile('{{.ID}}')">Delete</button>
+            </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="4" style="color:#555;text-align:center">No files</td></tr>
+        {{end}}
+        </tbody>
+    </table>
+</section>
+
+</main>
+
+<script>
+function handleDragOver(e) { e.preventDefault(); document.getElementById('drop-zone').classList.add('drag-over'); }
+function handleDragLeave(e) { document.getElementById('drop-zone').classList.remove('drag-over'); }
+function handleDrop(e) {
+    e.preventDefault();
+    document.getElementById('drop-zone').classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if(file) uploadFile(file);
+}
+
+function uploadFile(file) {
+    if(!file) return;
+    showMsg('Uploading ' + file.name + '...', 'ok');
+    const fd = new FormData();
+    fd.append('file', file);
+    fetch('/api/upload', {method:'POST', body: fd})
+        .then(r=>r.json()).then(d=>{
+            if(d.error){ showMsg(d.error,'err'); return; }
+            showMsg('Uploaded: ' + d.filename + ' — link copied!', 'ok');
+            navigator.clipboard.writeText(location.origin + '/download/' + d.id + '?token=' + d.token + '&expires=' + d.expires_at);
+            refreshFiles();
+        }).catch(e=>showMsg('Upload error: '+e,'err'));
+}
+
+function copyLink(id, token, expires) {
+    const url = location.origin + '/download/' + id + '?token=' + token + '&expires=' + expires;
+    navigator.clipboard.writeText(url).then(()=>showMsg('Link copied!','ok'));
+}
+
+function deleteFile(id) {
+    if(!confirm('Delete this file?')) return;
+    fetch('/api/files/'+id, {method:'DELETE'})
+        .then(r=>r.json()).then(d=>{
+            if(d.deleted) document.getElementById('row-'+id)?.remove();
+            else showMsg(d.error,'err');
+        });
+}
+
+function refreshFiles() {
+    fetch('/api/files').then(r=>r.json()).then(files=>{
+        const tbody = document.getElementById('files-tbody');
+        if(!files||!files.length){
+            tbody.innerHTML='<tr><td colspan="4" style="color:#555;text-align:center">No files</td></tr>';
+            return;
+        }
+        tbody.innerHTML = files.map(f=>{
+            const exp = new Date(f.expires_at);
+            const diff = exp - Date.now();
+            const expClass = diff < 0 ? 'expired' : diff < 3600000 ? 'soon' : '';
+            const expStr = exp.toISOString().replace('T',' ').slice(0,16);
+            const size = formatBytes(f.size);
+            const url = location.origin + '/download/' + f.id + '?token=' + f.token + '&expires=' + Math.floor(exp/1000);
+            return `<tr id="row-${f.id}">
+              <td>${f.filename}</td>
+              <td class="size">${size}</td>
+              <td class="expiry ${expClass}">${expStr}</td>
+              <td>
+                <button onclick='navigator.clipboard.writeText("${url}").then(()=>showMsg("Copied!","ok"))'>Copy Link</button>
+                &nbsp;
+                <button class="danger" onclick="deleteFile('${f.id}')">Delete</button>
+              </td>
+            </tr>`;
+        }).join('');
+    });
+}
+
+function formatBytes(b) {
+    if(b < 1024) return b + ' B';
+    if(b < 1048576) return (b/1024).toFixed(1) + ' KB';
+    return (b/1048576).toFixed(1) + ' MB';
+}
+
+function showMsg(msg, type) {
+    const el = document.getElementById('upload-msg');
+    el.innerHTML = `<div class="msg msg-${type}">${msg}</div>`;
+    setTimeout(()=>el.innerHTML='', 5000);
+}
+
+setInterval(refreshFiles, 10000);
+</script>
+</body>
+</html>
