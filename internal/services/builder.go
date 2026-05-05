@@ -162,7 +162,7 @@ func (bs *BuildService) runBuild(b *models.Build) {
 
 	// Clone if needed
 	log(fmt.Sprintf("Checking repo at %s...", proj.LocalPath))
-	if err := bs.git.CloneIfNotExists(proj.RepoURL, proj.LocalPath); err != nil {
+	if err := bs.git.CloneIfNotExists(b.Project, proj.RepoURL, proj.LocalPath, log); err != nil {
 		log(fmt.Sprintf("ERROR clone: %v", err))
 		setStatus(models.StatusFailed)
 		return
@@ -170,7 +170,7 @@ func (bs *BuildService) runBuild(b *models.Build) {
 
 	// Checkout branch (includes WARP toggle for pull)
 	log(fmt.Sprintf("Checking out branch: %s", b.Branch))
-	if err := bs.git.CheckoutBranch(proj.LocalPath, b.Branch); err != nil {
+	if err := bs.git.PullBranch(proj.LocalPath, b.Branch, log); err != nil {
 		log(fmt.Sprintf("ERROR checkout: %v", err))
 		setStatus(models.StatusFailed)
 		return

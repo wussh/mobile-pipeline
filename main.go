@@ -27,6 +27,12 @@ func main() {
 	gitSvc := services.NewGitService(warpSvc)
 	buildSvc := services.NewBuildService(cfg, gitSvc, fileMgr)
 
+	// Pre-populate branch cache from local .git (no network needed)
+	for _, proj := range cfg.Projects {
+		gitSvc.WarmCache(proj.Name, proj.LocalPath)
+	}
+	log.Printf("Branch cache warmed for %d project(s)", len(cfg.Projects))
+
 	// Start cleanup goroutine
 	go services.StartCleanup(fileMgr, cfg.CleanupInterval)
 
@@ -60,6 +66,7 @@ func main() {
 		api.GET("/projects", h.ListProjects)
 		api.GET("/branches", h.ListBranches)
 		api.POST("/fetch", h.FetchBranches)
+		api.POST("/pull", h.PullLatest)
 		api.GET("/warp/status", h.WarpStatus)
 
 		api.POST("/build", h.TriggerBuild)

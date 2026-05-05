@@ -50,15 +50,14 @@ func (h *Handler) ListProjects(c *gin.Context) {
 
 func (h *Handler) ListBranches(c *gin.Context) {
 	project := c.Query("project")
-	proj := h.findProject(project)
-	if proj == nil {
+	if h.findProject(project) == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown project"})
 		return
 	}
-	branches, err := h.gitSvc.ListBranches(proj.LocalPath)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	// Always served from in-memory cache — no WARP toggle needed
+	branches := h.gitSvc.ListBranches(project)
+	if branches == nil {
+		branches = []string{}
 	}
 	c.JSON(http.StatusOK, gin.H{"branches": branches})
 }
@@ -77,15 +76,42 @@ func (h *Handler) FetchBranches(c *gin.Context) {
 		return
 	}
 	var logs []string
-	if err := h.gitSvc.FetchLatest(proj.LocalPath, func(line string) {
+	branches, err := h.gitSvc.FetchLatest(body.Project, proj.LocalPath, func(line string) {
+		logs = append(logs, line)
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "log": logs})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"branches": branches, "log": logs})
+}
+
+func (h *Handler) PullLatest(c *gin.Context) {
+	var body struct {
+		Project string `json:"project"`
+		Branch  string `json:"branch"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	proj := h.findProject(body.Project)
+	if proj == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown project"})
+		return
+	}
+	if body.Branch == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "branch is required"})
+		return
+	}
+	var logs []string
+	if err := h.gitSvc.PullBranch(proj.LocalPath, body.Branch, func(line string) {
 		logs = append(logs, line)
 	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "log": logs})
 		return
 	}
-	// Return updated branch list
-	branches, _ := h.gitSvc.ListBranches(proj.LocalPath)
-	c.JSON(http.StatusOK, gin.H{"branches": branches, "log": logs})
+	c.JSON(http.StatusOK, gin.H{"log": logs})
 }
 
 // ── WARP ───────────────────────────────────────────────────────────────────

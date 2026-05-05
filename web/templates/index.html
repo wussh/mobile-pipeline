@@ -76,7 +76,7 @@
         </div>
         <div>
             <label>Branch</label>
-            <select id="sel-branch"><option value="">— load branches —</option></select>
+            <select id="sel-branch"><option value="">— fetch to load —</option></select>
         </div>
         <div>
             <label>Type</label>
@@ -85,14 +85,20 @@
                 <option value="apk">APK (Android)</option>
             </select>
         </div>
-        <div>
+        <div style="display:flex;flex-direction:column;gap:4px">
             <label>&nbsp;</label>
-            <button id="btn-fetch" onclick="fetchBranches()">↻ Fetch</button>
+            <div style="display:flex;gap:4px">
+                <button id="btn-fetch" title="Disconnect WARP, git fetch --all --prune, reconnect WARP" onclick="fetchBranches()">⬇ Fetch Branches</button>
+                <button id="btn-pull" title="Disconnect WARP, git pull origin branch, reconnect WARP" onclick="pullLatest()">↻ Pull Latest</button>
+            </div>
         </div>
         <div>
             <label>&nbsp;</label>
             <button class="primary" id="btn-build" onclick="triggerBuild()">▶ Build</button>
         </div>
+    </div>
+    <div id="warn-warp" style="display:none;padding:6px 10px;background:#3a2800;border:1px solid #a06000;border-radius:4px;font-size:12px;color:#ffc;margin-bottom:8px">
+        ⚠️ Fetch/Pull will disconnect WARP — website is unreachable until reconnected (usually ~5s)
     </div>
     <div id="log-box">Ready.</div>
 </section>
@@ -135,29 +141,52 @@ function refreshWarp() {
 setInterval(refreshWarp, 5000);
 refreshWarp();
 
-// Load branches for project
-document.getElementById('sel-project').addEventListener('change', loadBranches);
+// Show WARP warning on hover of fetch/pull buttons
+document.getElementById('btn-fetch').addEventListener('mouseenter', ()=>{
+    document.getElementById('warn-warp').style.display='block';
+});
+document.getElementById('btn-pull').addEventListener('mouseenter', ()=>{
+    document.getElementById('warn-warp').style.display='block';
+});
+document.getElementById('btn-fetch').addEventListener('mouseleave', ()=>{
+    document.getElementById('warn-warp').style.display='none';
+});
+document.getElementById('btn-pull').addEventListener('mouseleave', ()=>{
+    document.getElementById('warn-warp').style.display='none';
+});
 
-function loadBranches() {
+// Load branches from cache (instant, no WARP needed)
+function loadBranches(selected) {
     const proj = document.getElementById('sel-project').value;
     fetch('/api/branches?project=' + proj).then(r=>r.json()).then(d=>{
         const sel = document.getElementById('sel-branch');
+        const prev = selected || sel.value;
         sel.innerHTML = '';
-        (d.branches||[]).forEach(b => {
+        const branches = d.branches || [];
+        if(branches.length === 0) {
+            sel.innerHTML = '<option value="">— click Fetch Branches first —</option>';
+            return;
+        }
+        branches.forEach(b => {
             const o = document.createElement('option');
             o.value = b; o.textContent = b;
+            if(b === prev) o.selected = true;
             sel.appendChild(o);
         });
     });
 }
+
+document.getElementById('sel-project').addEventListener('change', ()=>loadBranches());
 loadBranches();
 
+// Fetch: disconnect WARP → git fetch --all --prune → update cache → reconnect
 function fetchBranches() {
     const proj = document.getElementById('sel-project').value;
     const btn = document.getElementById('btn-fetch');
-    btn.disabled = true;
+    const btnPull = document.getElementById('btn-pull');
+    btn.disabled = true; btnPull.disabled = true;
     btn.textContent = '...';
-    appendLog('⚠️  Fetching branches — WARP will disconnect briefly...', '');
+    appendLog('⬇ Fetching branches for ' + proj + ' (WARP will disconnect briefly)...', '');
 
     fetch('/api/fetch', {
         method:'POST',
@@ -165,13 +194,40 @@ function fetchBranches() {
         body: JSON.stringify({project: proj})
     }).then(r=>r.json()).then(d=>{
         (d.log||[]).forEach(l=>appendLog(l,''));
-        if(d.error) { appendLog('ERROR: ' + d.error, 'err'); }
-        else {
-            appendLog('✅ Fetch complete', 'ok');
-            loadBranches();
+        if(d.error) {
+            appendLog('ERROR: ' + d.error, 'err');
+        } else {
+            appendLog('Branch list updated: ' + (d.branches||[]).length + ' branches', 'ok');
+            // Update dropdown preserving current selection
+            const cur = document.getElementById('sel-branch').value;
+            loadBranches(cur || (d.branches||[])[0]);
         }
     }).catch(e=>appendLog('ERROR: '+e,'err'))
-    .finally(()=>{ btn.disabled=false; btn.textContent='↻ Fetch'; });
+    .finally(()=>{ btn.disabled=false; btnPull.disabled=false; btn.textContent='⬇ Fetch Branches'; });
+}
+
+// Pull Latest: checkout selected branch, disconnect WARP → git pull → reconnect
+function pullLatest() {
+    const proj = document.getElementById('sel-project').value;
+    const branch = document.getElementById('sel-branch').value;
+    if(!branch) { showMsg('Select a branch first', 'err'); return; }
+
+    const btn = document.getElementById('btn-pull');
+    const btnFetch = document.getElementById('btn-fetch');
+    btn.disabled = true; btnFetch.disabled = true;
+    btn.textContent = '...';
+    appendLog('↻ Pulling ' + branch + ' for ' + proj + ' (WARP will disconnect briefly)...', '');
+
+    fetch('/api/pull', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({project: proj, branch: branch})
+    }).then(r=>r.json()).then(d=>{
+        (d.log||[]).forEach(l=>appendLog(l,''));
+        if(d.error) appendLog('ERROR: ' + d.error, 'err');
+        else appendLog('✅ Pull complete', 'ok');
+    }).catch(e=>appendLog('ERROR: '+e,'err'))
+    .finally(()=>{ btn.disabled=false; btnFetch.disabled=false; btn.textContent='↻ Pull Latest'; });
 }
 
 function triggerBuild() {
