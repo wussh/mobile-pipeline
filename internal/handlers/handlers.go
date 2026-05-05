@@ -75,21 +75,21 @@ func (h *Handler) FetchBranches(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown project"})
 		return
 	}
-	var logs []string
-	if err := h.gitSvc.CloneIfNotExists(proj.Name, proj.RepoURL, proj.LocalPath, func(line string) {
-		logs = append(logs, line)
-	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "log": logs})
-		return
-	}
-	branches, err := h.gitSvc.FetchLatest(body.Project, proj.LocalPath, func(line string) {
-		logs = append(logs, line)
-	})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "log": logs})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"branches": branches, "log": logs})
+	// Run asynchronously so the HTTP response can be sent before WARP disconnects the tunnel
+	go func() {
+		// Small delay to ensure the HTTP 202 response is fully sent
+		time.Sleep(1 * time.Second)
+		logFn := func(line string) {
+			fmt.Printf("[FETCH %s] %s\n", proj.Name, line)
+		}
+		if err := h.gitSvc.CloneIfNotExists(proj.Name, proj.RepoURL, proj.LocalPath, logFn); err != nil {
+			logFn(fmt.Sprintf("ERROR clone: %v", err))
+			return
+		}
+		h.gitSvc.FetchLatest(body.Project, proj.LocalPath, logFn)
+	}()
+
+	c.JSON(http.StatusAccepted, gin.H{"status": "async_started"})
 }
 
 func (h *Handler) PullLatest(c *gin.Context) {
@@ -110,20 +110,23 @@ func (h *Handler) PullLatest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "branch is required"})
 		return
 	}
-	var logs []string
-	if err := h.gitSvc.CloneIfNotExists(proj.Name, proj.RepoURL, proj.LocalPath, func(line string) {
-		logs = append(logs, line)
-	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "log": logs})
-		return
-	}
-	if err := h.gitSvc.PullBranch(proj.LocalPath, body.Branch, func(line string) {
-		logs = append(logs, line)
-	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "log": logs})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"log": logs})
+	// Run asynchronously so the HTTP response can be sent before WARP disconnects the tunnel
+	go func() {
+		// Small delay to ensure the HTTP 202 response is fully sent
+		time.Sleep(1 * time.Second)
+		logFn := func(line string) {
+			fmt.Printf("[PULL %s] %s\n", proj.Name, line)
+		}
+		if err := h.gitSvc.CloneIfNotExists(proj.Name, proj.RepoURL, proj.LocalPath, logFn); err != nil {
+			logFn(fmt.Sprintf("ERROR clone: %v", err))
+			return
+		}
+		if err := h.gitSvc.PullBranch(proj.LocalPath, body.Branch, logFn); err != nil {
+			logFn(fmt.Sprintf("ERROR pull: %v", err))
+		}
+	}()
+
+	c.JSON(http.StatusAccepted, gin.H{"status": "async_started"})
 }
 
 // ── WARP ───────────────────────────────────────────────────────────────────

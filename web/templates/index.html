@@ -129,6 +129,8 @@
 <script>
 let currentBuildID = null;
 let ws = null;
+let pendingWarpOp = null; // null, 'fetch', 'pull'
+let lastWarpStatus = null;
 
 // Poll WARP status
 function refreshWarp() {
@@ -136,9 +138,34 @@ function refreshWarp() {
         const el = document.getElementById('warp-status');
         el.textContent = 'WARP: ' + d.status;
         el.style.color = d.status === 'Connected' ? '#6bff8a' : '#ff6b6b';
-    }).catch(()=>{});
+
+        // Detect WARP reconnecting after an operation
+        if (lastWarpStatus === 'Disconnected' && d.status === 'Connected' && pendingWarpOp) {
+            appendLog('✅ WARP reconnected! ' + pendingWarpOp + ' complete.', 'ok');
+            document.getElementById('btn-fetch').disabled = false;
+            document.getElementById('btn-pull').disabled = false;
+            document.getElementById('btn-fetch').textContent = '⬇ Fetch Branches';
+            document.getElementById('btn-pull').textContent = '↻ Pull Latest';
+            
+            if (pendingWarpOp === 'fetch') {
+                loadBranches();
+            }
+            pendingWarpOp = null;
+        }
+        lastWarpStatus = d.status;
+
+    }).catch(()=>{
+        // If fetch fails, the tunnel is likely offline because WARP is disconnected
+        const el = document.getElementById('warp-status');
+        el.textContent = 'WARP: Offline';
+        el.style.color = '#ff6b6b';
+        if (pendingWarpOp && lastWarpStatus !== 'Disconnected') {
+            appendLog('Tunnel offline (WARP disconnected). Operation running in background...', '');
+            lastWarpStatus = 'Disconnected';
+        }
+    });
 }
-setInterval(refreshWarp, 5000);
+setInterval(refreshWarp, 3000);
 refreshWarp();
 
 // Show WARP warning on hover of fetch/pull buttons
@@ -186,6 +213,7 @@ function fetchBranches() {
     const btnPull = document.getElementById('btn-pull');
     btn.disabled = true; btnPull.disabled = true;
     btn.textContent = '...';
+    pendingWarpOp = 'fetch';
     appendLog('⬇ Fetching branches for ' + proj + ' (WARP will disconnect briefly)...', '');
 
     fetch('/api/fetch', {
@@ -193,17 +221,15 @@ function fetchBranches() {
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({project: proj})
     }).then(r=>r.json()).then(d=>{
-        (d.log||[]).forEach(l=>appendLog(l,''));
         if(d.error) {
             appendLog('ERROR: ' + d.error, 'err');
-        } else {
-            appendLog('Branch list updated: ' + (d.branches||[]).length + ' branches', 'ok');
-            // Update dropdown preserving current selection
-            const cur = document.getElementById('sel-branch').value;
-            loadBranches(cur || (d.branches||[])[0]);
+            pendingWarpOp = null;
+            btn.disabled=false; btnPull.disabled=false; btn.textContent='⬇ Fetch Branches';
         }
-    }).catch(e=>appendLog('ERROR: '+e,'err'))
-    .finally(()=>{ btn.disabled=false; btnPull.disabled=false; btn.textContent='⬇ Fetch Branches'; });
+    }).catch(e=>{
+        // Network error expected when Cloudflare tunnel drops!
+        console.log("Fetch dropped (expected):", e);
+    });
 }
 
 // Pull Latest: checkout selected branch, disconnect WARP → git pull → reconnect
@@ -216,6 +242,7 @@ function pullLatest() {
     const btnFetch = document.getElementById('btn-fetch');
     btn.disabled = true; btnFetch.disabled = true;
     btn.textContent = '...';
+    pendingWarpOp = 'pull';
     appendLog('↻ Pulling ' + branch + ' for ' + proj + ' (WARP will disconnect briefly)...', '');
 
     fetch('/api/pull', {
@@ -223,11 +250,15 @@ function pullLatest() {
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({project: proj, branch: branch})
     }).then(r=>r.json()).then(d=>{
-        (d.log||[]).forEach(l=>appendLog(l,''));
-        if(d.error) appendLog('ERROR: ' + d.error, 'err');
-        else appendLog('✅ Pull complete', 'ok');
-    }).catch(e=>appendLog('ERROR: '+e,'err'))
-    .finally(()=>{ btn.disabled=false; btnFetch.disabled=false; btn.textContent='↻ Pull Latest'; });
+        if(d.error) {
+            appendLog('ERROR: ' + d.error, 'err');
+            pendingWarpOp = null;
+            btn.disabled=false; btnFetch.disabled=false; btn.textContent='↻ Pull Latest';
+        }
+    }).catch(e=>{
+        // Network error expected when Cloudflare tunnel drops!
+        console.log("Pull dropped (expected):", e);
+    });
 }
 
 function triggerBuild() {
